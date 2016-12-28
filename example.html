@@ -424,6 +424,12 @@ function CanvasState(canvas) {
   this.interval = 30;
   setInterval(function() { myState.draw(); }, myState.interval);
 }
+
+
+
+
+
+
 CanvasState.prototype.addBody = function(Body) {
   this.NumberOfBodys = this.NumberOfBodys +1;
   this.NextStepVelocitys.push(new vector(0,0));
