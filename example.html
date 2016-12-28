@@ -1,0 +1,696 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+  <link rel="stylesheet" type="text/css" href="Test.css">
+  </head>
+  <body onLoad='init()'>
+    <canvas id="canvas" width="900" height="400"></canvas>
+    <script>
+/* ---N-Body Simulator---- */
+/*    By Kevin Hennessy    */
+/*
+Things to do:
+*
+  
+* Draw orbit paths that dissapear when the camera moves 
+* Rest of the UI finalized. Two placement types, circular greyed out when not selecting something. Mass buttons 
+  and text input like nowykuyier one. Pause button in top right. Select button middle right. Selected info bottem right. Zoom buttons middle right Pin on right
+  Paths bottom left. Clear bottom left. Number of particles bottom left. Text top left
+* Using the two body equation to place bodys into a circular orbit with the currently selected body
+* The ability to draw and select Barycentres and put things into orbit around them 
+* Buttons drawn as 3d shapes that depress when clicked. 
+* If possible zoom functionality  
+*/
+//Constants
+//Constructor for vector object
+function vector(x, y) {
+   this.x = x || 0;
+   this.y = y || 0;   
+}
+//linear distance between two points (from distance equations)
+vector.prototype.distance = function(that) {
+   var distance = Math.sqrt(((that.x - this.x) * (that.x - this.x)) + ((that.y - this.y) * (that.y - this.y)));
+   
+   return distance;
+}
+// Constructor for GenericButton objects 
+function GenericButton(position, buttontext, width, height, activationfunction, active, beinghelddown){
+  this.position = position;
+  this.buttontext = buttontext;
+  this.width = width;
+  this.height = height;
+  this.activationfunction = activationfunction; //function(){alert("This is the function from the button constructor");};
+  this.active = active;
+  this.beinghelddown = beinghelddown;
+}
+function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+  if (typeof stroke == "undefined" ) {
+    stroke = true;
+  }
+  if (typeof radius === "undefined") {
+    radius = 5;
+  }
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  if (stroke) {
+    ctx.stroke();
+  }
+  if (fill) {
+    ctx.fill();
+  }        
+}
+//draw generic buttons (not completed)
+GenericButton.prototype.draw = function(ctx) {
+   this.width = this.buttontext.length*7;
+   this.height = 20;
+   if(this.beinghelddown == false){
+    ctx.save();
+	  var radius = 5;
+	 
+/*	 ctx.strokeStyle = 'grey';
+	  ctx.fillStyle = 'grey';
+	  roundRect(ctx, this.position.x-1.5, this.position.y-1.5, this.width+3, this.height+3, radius, true, true);
+*/	  
+	  ctx.strokeStyle = 'grey';
+	  ctx.fillStyle = 'grey';
+	  roundRect(ctx, this.position.x, this.position.y, this.width, this.height, radius, true, true);
+	  ctx.strokeStyle = 'black';
+	   ctx.clip();
+       ctx.beginPath();
+       ctx.strokeStyle = 'grey';
+       ctx.lineWidth = 0;
+       ctx.shadowBlur = 15;
+       ctx.shadowColor = 'black';
+       ctx.shadowOffsetX = 0;
+       ctx.shadowOffsetY = 0;
+	   roundRect(ctx, this.position.x, this.position.y, this.width, this.height, radius, true, true);
+	   ctx.stroke();
+	   ctx.restore();
+	   
+	  ctx.font = '10pt Calibri';
+      ctx.fillStyle = 'black';
+      ctx.fillText(this.buttontext, this.position.x+5, this.position.y+(this.height/2)+5);
+	 // if(this.ismouseinside(myState.mousepoint.x, myState.mousepoint.y){
+	   //  alert("mouse inside");
+	  //}   
+	   
+    }else{
+	/* ctx.strokeStyle = 'grey';
+	  ctx.fillStyle = 'grey';
+	  roundRect(ctx, this.position.x-1.5, this.position.y+3-1.5, this.width+3, this.height+3, radius, true, true);
+	  */
+	
+	   var newx =this.position.x;
+	   var newy = this.position.y;
+	   ctx.save();
+	  var radius = 5;
+	  ctx.strokeStyle = 'grey';
+	  ctx.fillStyle = 'grey';
+	  roundRect(ctx, newx, newy, this.width, this.height, radius, true, true);
+	//   roundRect(ctx, this.position.x, this.position.y, this.width, this.height, radius, true, true);
+	   ctx.clip();
+       ctx.beginPath();
+       ctx.strokeStyle = 'grey';
+       ctx.lineWidth = 5;
+       ctx.shadowBlur = 50;
+       ctx.shadowColor = 'black';
+       ctx.shadowOffsetX = 0;
+       ctx.shadowOffsetY = 0;
+	   roundRect(ctx, newx, newy, this.width, this.height, radius, true, true);
+	   ctx.stroke();
+	   ctx.restore();
+	   
+	  ctx.font = '10pt Calibri';
+      ctx.fillStyle = 'black';
+      ctx.fillText(this.buttontext, newx+5, newy+(this.height/2)+5);
+	}
+	   
+	  
+}
+//is mouse within border
+GenericButton.prototype.ismouseinside  = function(mx, my){
+   
+    if(mx > this.position.x && mx < this.position.x+this.width && my > this.position.y && my < this.position.y+this.height === true){
+	   return true;
+	}else{
+	   return false;
+	}
+}
+// Constructor for Body objects to hold data for all drawn objects.
+// For now they will just be defined as rectangles.
+function Body(position, mass, velocity, pinned) {
+  // This is a very simple and unsafe constructor. All we're doing is checking if the values exist.
+  // "x || 0" just means "if there is a value for x, use that. Otherwise use 0."
+  // But we aren't checking anything else! We could put "Lalala" for the value of x 
+  this.position = position;
+  this.mass = mass;
+  this.velocity = velocity;
+  this.pinned = pinned;
+}
+//get the radius
+Body.prototype.getradius = function() {
+   var radius = (Math.log(this.mass))/2;
+   //var radius = this.mass;
+   return radius;
+}
+// Draws this Body to a given context
+Body.prototype.draw = function(ctx) {
+  
+  
+  ctx.beginPath();
+  ctx.arc(this.position.x, this.position.y, this.getradius(), 0, 2 * Math.PI, false);
+  ctx.fillStyle = 'red';
+  ctx.fill();
+     ctx.shadowColor = 'orange';
+     ctx.shadowBlur = 0;
+     ctx.shadowOffsetX = 0;
+     ctx.shadowOffsetY = 0;
+     ctx.fill();
+	 ctx.shadowColor = 'red';
+     ctx.shadowBlur = 0
+     ctx.shadowOffsetX = 0;
+     ctx.shadowOffsetY = 0;  
+	 
+  if(this.pinned === true){
+    ctx.beginPath();
+    ctx.arc(this.position.x, this.position.y, this.getradius()/4, 0, 2 * Math.PI, false);
+    ctx.fillStyle = 'black';
+    ctx.fill();
+  }
+  //ctx.lineWidth = 5;
+  //ctx.strokeStyle = '#003300';
+  //ctx.stroke();
+}
+Body.prototype.updateforcamera = function(CameraVariable) {
+  this.position.x =  this.position.x - CameraVariable.x;
+  this.position.y =  this.position.y - CameraVariable.y;
+  //alert("Body.prototype.updateforcamera called");
+}
+//update the Body's position
+Body.prototype.move = function(CentreOfView) {
+  this.position.x = this.position.x + this.velocity.x ;
+  this.position.y = this.position.y + this.velocity.y;
+  
+}
+// Determine if a point is inside the Body's bounds
+Body.prototype.contains = function(mx, my) {
+  // All we have to do is make sure the Mouse X,Y fall in the area between
+  // the Body's X and (X + Height) and its Y and (Y + Height)
+  return  (this.position.x - this.getradius() <= mx) && (this.position.x + this.getradius() >= mx) &&
+          (this.position.y - this.getradius() <= my) && (this.position.y + this.getradius() >= my);
+}
+  //        (G * this.mass * that.mass)
+  //  F =   -----------------------
+  //	        distance ^2
+Body.prototype.forceFrom = function(OtherBody) {
+  var G = 10;  ;5
+  var ForceVector = new vector (this.position.x - OtherBody.position.x, this.position.y - OtherBody.position.y );
+  //var ForceVector = new vector (this.position.x , this.position.y );
+  //var ForceVector = new vector (OtherBody.position.x, OtherBody.position.y );
+ 
+  var dist = this.position.distance(OtherBody.position);
+  //var ScalarForce = (G * this.mass * OtherBody.mass) / ((dist * dist) );
+  //ForceVector.x = ForceVector.x * ScalarForce;
+  //ForceVector.y = ForceVector.y * ScalarForce;
+  //return ForceVector;
+  var Acceleration = (G*OtherBody.mass)/(dist*dist);
+  Acceleration = Acceleration /6000;
+  //var ReturnVelocity = new vector(Math.sqrt((OtherBody.velocity.x * OtherBody.velocity.x)+2*(Acceleration.x * dist)), Math.sqrt((OtherBody.velocity.y * OtherBody.velocity.y)+2*(Acceleration.y * dist)));
+  //var ReturnVelocity = new vector(Math.sqrt((OtherBody.position.x * OtherBody.velocity.x)+2*(Acceleration.x * dist)), Math.sqrt((0*OtherBody.velocity.y * OtherBody.velocity.y)+2*(Acceleration.y * dist)));
+  ForceVector.x = ForceVector.x * Acceleration;
+  ForceVector.y = ForceVector.y * Acceleration; 
+  return ForceVector;
+  }
+function CanvasState(canvas) {
+  // **** First some setup! ****
+  
+  this.canvas = canvas;
+  this.width = canvas.width;
+  this.height = canvas.height;
+  this.ctx = canvas.getContext('2d');
+  // This complicates things a little but but fixes mouse co-ordinate problems
+  // when there's a border or padding. See getMouse for more detail
+  var stylePaddingLeft, stylePaddingTop, styleBorderLeft, styleBorderTop;
+  if (document.defaultView && document.defaultView.getComputedStyle) {
+    this.stylePaddingLeft = parseInt(document.defaultView.getComputedStyle(canvas, null)['paddingLeft'], 10)      || 0;
+    this.stylePaddingTop  = parseInt(document.defaultView.getComputedStyle(canvas, null)['paddingTop'], 10)       || 0;
+    this.styleBorderLeft  = parseInt(document.defaultView.getComputedStyle(canvas, null)['borderLeftWidth'], 10)  || 0;
+    this.styleBorderTop   = parseInt(document.defaultView.getComputedStyle(canvas, null)['borderTopWidth'], 10)   || 0;
+  }
+  // Some pages have fixed-position bars (like the stumbleupon bar) at the top or left of the page
+  // They will mess up mouse coordinates and this fixes that
+  var html = document.body.parentNode;
+  this.htmlTop = html.offsetTop;
+  this.htmlLeft = html.offsetLeft;
+  // **** Keep track of state! ****
+  this.SelectionChoiceMode = false;
+  this.Selection = null;
+  this.BodySelected = false;
+  this.CTRLpressed = false;
+  this.MovingCamera = false;
+  this.CentreOfView = new vector((this.canvas.width/2),(this.canvas.height/2));
+  this.CameraVariable = new vector(0,0);
+  this.CentreOfTheUniverse = new vector((this.canvas.width/2),(this.canvas.height/2));
+  this.NumberOfBodys = 0;
+  this.paused = false; 
+  this.Bodys = [];  // the collection of things to be drawn
+  this.NextStepVelocitys  = []; 
+  this.GenericButtonArray = [];
+  this.ButtonIsBeingPressed = false;
+  this.FunctionToExecute = function(){alert("Uninitialized function called");};
+  this.placing = false;
+  this.placing_mode = "Manual_Mode"; // Keep track of the placing mode.
+  this.placing_mass = 100;
+  this.ButtonBeingHeldDown = null;
+  // the current selected object. In the future we could turn this into an array for multiple selection
+ 
+  
+  //these two values are updated during events
+  this.clickedpoint = new vector (1,1);
+  this.mousepoint =  new vector (0,0);
+  this.clickedpointpreviousframe =  new vector (0,0);
+  this.dragoffx = 0; // See mousedown and mousemove events for explanation
+  this.dragoffy = 0;
+  
+  // **** Then events! ****
+  
+  // This is an example of a closure!
+  // Right here "this" means the CanvasState. But we are making events on the Canvas itself,
+  // and when the events are fired on the canvas the variable "this" is going to mean the canvas!
+  // Since we still want to use this particular CanvasState in the events we have to save a reference to it.
+  // This is our reference!
+  var myState = this;
+  
+  //fixes a problem where double clicking causes text to get selected on the canvas
+  canvas.addEventListener('selectstart', function(e) { e.preventDefault(); return false; }, false);
+ //Mouse down
+  canvas.addEventListener('mousedown', function(e) {
+ //   myState.paused = myState.paused;
+	var mouse = myState.getMouse(e);
+	
+	myState.clickedpoint = new vector(mouse.x, mouse.y);
+//	myState.mousepoint = new vector(mouse.x, mouse.y);
+    myState.ButtonIsBeingPressed = false;
+	myState.placing = true;
+	for (var i =0; i<myState.GenericButtonArray.length; i++){
+	   if( myState.GenericButtonArray[i].ismouseinside(mouse.x, mouse.y)  &&  myState.GenericButtonArray[i].activationfunction != null){
+         myState.GenericButtonArray[i].beinghelddown = true;		 
+		 myState.ButtonIsBeingPressed = true;
+		 myState.ButtonBeingHeldDown = myState.GenericButtonArray[i];
+		  myState.placing = false;
+		  myState.FunctionToExecute = myState.GenericButtonArray[i].activationfunction;
+	   }
+	}
+	  //myState.BodySelected = false;
+	if(myState.SelectionChoiceMode === true){
+	   myState.placing = false; 
+	 
+	   myState.SelectionChoiceMode = false;
+	   myState.Selection = myState.GetBodyThatContainsPoint(mouse.x, mouse.y);
+	   if(myState.Selection === null){
+	      myState.BodySelected = false;
+	   }else{
+	      myState.BodySelected = true;
+		 myState.resetcamera();
+		 //myState.updateforcamera();
+		 // while(myState.CentreOfView.x !== myState.Selection.position.x && myState.CentreOfView.y !== myState.Selection.position.y){
+		    
+			 myState.MoveCamera(myState.Selection.position, myState.CentreOfView);
+			// myState.updateforcamera(); 
+		  //}
+	   }
+	}
+	
+	switch (myState.placing_mode){
+    case "Manual_Mode":
+       //alert("Manual mode is enabled!");
+       break;
+    case "Random_Mode":
+      // alert("Random mode is enabled!");
+       break;
+	case "Circular_Mode":
+      // alert("Circular mode is enabled!");
+       break;
+    }
+	
+	if(myState.CTRLpressed === true){
+	  myState.MovingCamera = true;
+	  myState.placing = false;
+	}
+	
+  }, true);
+  
+  canvas.addEventListener('mousemove', function(e) {
+     var mouse = myState.getMouse(e);
+	 myState.mousepoint.x = mouse.x;
+	 myState.mousepoint.y = mouse.y ;
+	 if(myState.MovingCamera === true){
+	    myState.clickedpoint.x = myState.clickedpoint.x - myState.CameraVariable.x;
+		myState.clickedpoint.y = myState.clickedpoint.y - myState.CameraVariable.y;
+	    //myState.ctx.translate(myState.clickedpoint.x- myState.mousepoint.x, myState.clickedpoint.y- myState.mousepoint.y);
+	    //myState.clickedpointpreviousframe = myState.clickedpoint;
+		
+	    myState.CameraVariable.x =  myState.clickedpoint.x- myState.mousepoint.x;
+        myState.CameraVariable.y =  myState.clickedpoint.y- myState.mousepoint.y;
+			
+		myState.updateforcamera();
+	 }
+	 
+  }, true);
+  
+  canvas.addEventListener('mouseup', function(e) {
+    if(myState.ButtonIsBeingPressed === true){
+	   myState.FunctionToExecute();
+	   myState.ButtonIsBeingPressed = false;
+	   myState.ButtonBeingHeldDown.beinghelddown = false;
+	   myState.ButtonBeingHeldDown = null;
+	}
+	
+	if(myState.placing === true){
+	   myState.addBody(new Body(new vector(myState.clickedpoint.x, myState.clickedpoint.y), myState.placing_mass, new vector((myState.clickedpoint.x-myState.mousepoint.x)/100, (myState.clickedpoint.y-myState.mousepoint.y)/100), false));
+    }
+	myState.placing = false;
+	myState.MovingCamera = false;
+	
+  }, true);
+  // double click for making new Bodys
+  canvas.addEventListener('dblclick', function(e) {
+  
+	
+    
+  }, true);
+  
+  window.addEventListener('keydown', function(e){
+ 
+  var keyCode = e.keyCode;
+  if(keyCode==17) {
+    //alert("You hit  CTRL.");
+	myState.CTRLpressed = true;
+    }
+	
+   if(keyCode==80) {
+      if(myState.paused === true){
+	   myState.paused = false;
+	}else if (myState.paused === false){
+	   myState.paused = true;
+	}
+    }
+   
+	
+  }, true);
+   window.addEventListener('keyup', function(e){
+ 
+  var keyCode = e.keyCode;
+  if(keyCode==17) {
+    //alert("ctrl has been released");
+	myState.CTRLpressed = false;
+	myState.MovingCamera = false;
+    } 
+  }, true);
+  
+  // **** Options! ****
+  
+  this.lastcreatedbodyColor = '#CC0000';
+  this.lastcreatedbodyWidth = 2;  
+  this.interval = 30;
+  setInterval(function() { myState.draw(); }, myState.interval);
+}
+CanvasState.prototype.addBody = function(Body) {
+  this.NumberOfBodys = this.NumberOfBodys +1;
+  this.NextStepVelocitys.push(new vector(0,0));
+  this.Bodys.push(Body);
+   this.lastcreatedbody = Body;  
+  //alert("New body created with mass: " + Body.mass + ", radius " +Body.getradius());
+  
+}
+//returns a Body if the given point is contained inside it
+//returns null if not
+CanvasState.prototype.GetBodyThatContainsPoint = function(mx, my) {
+   var result = null;
+   var count =0;
+   while (result === null && count !== this.Bodys.length){
+       if( this.Bodys[count].contains(mx, my) === true){
+	     result = this.Bodys[count];
+	  }
+	  count++;
+   }
+   return result;
+  
+}
+CanvasState.prototype.SelectionChoiceModePressed = function() {
+   this.SelectionChoiceMode = true;
+}
+CanvasState.prototype.updateforcamera= function() {
+  for(var i =0; i< this.Bodys.length; i++){
+     this.Bodys[i].updateforcamera(this.CameraVariable);
+  }
+   this.CentreOfTheUniverse.x = this.CentreOfTheUniverse.x - this.CameraVariable.x;
+   this.CentreOfTheUniverse.y = this.CentreOfTheUniverse.y - this.CameraVariable.y;
+}
+// myState.MoveCamera(myState.Selection.position, myState.CentreOfView)
+CanvasState.prototype.MoveCamera= function(pinnedvector, distancevector) {
+   while(distancevector.x !== pinnedvector.x && distancevector.y !== pinnedvector.y){
+        pinnedvector.x = pinnedvector.x - this.CameraVariable.x;
+		pinnedvector.y = pinnedvector.y - this.CameraVariable.y;
+	    //this.ctx.translate(pinnedvector.x- distancevector.x, pinnedvector.y- distancevector.y);
+	    //pinnedvectorpreviousframe = pinnedvector;
+		
+	    this.CameraVariable.x =  pinnedvector.x- distancevector.x;
+        this.CameraVariable.y =  pinnedvector.y- distancevector.y;
+	     this.updateforcamera(); 	
+    }
+    
+}
+CanvasState.prototype.addGenericButton = function(GenericButton) {
+ 
+  this.GenericButtonArray.push(GenericButton);
+  
+}
+CanvasState.prototype.clear = function() {
+  this.ctx.clearRect(0, 0, this.width, this.height);
+}
+CanvasState.prototype.resetcamera = function() {
+  //alert("camera reset pressed!");
+  //this.CameraVariable = new vector(0,0);
+  for (var i =0; i< this.Bodys.length; i++){
+     this.Bodys[i].position.x = this.Bodys[i].position.x + (this.CentreOfView.x - this.CentreOfTheUniverse.x);
+	 this.Bodys[i].position.y = this.Bodys[i].position.y + (this.CentreOfView.y - this.CentreOfTheUniverse.y);
+  }
+  this.CentreOfTheUniverse.x = this.CentreOfView.x ;
+  this.CentreOfTheUniverse.y = this.CentreOfView.y ;
+  this.CameraVariable = new vector(0,0); 
+}
+CanvasState.prototype.drawdebuginfo = function(ctx) {
+   if (this.lastcreatedbody === null){
+    
+   }else{
+      ctx.font = '10pt Calibri';
+      ctx.fillStyle = 'yellow';
+      ctx.fillText("The last created body is at (" + this.lastcreatedbody.position.x +", "+ this.lastcreatedbody.position.y +") and has a velocity of (" + this.lastcreatedbody.velocity.x +"," + this.lastcreatedbody.velocity.y+")" , 10, 380);
+      ctx.fillText("Number of particles is: "+this.NumberOfBodys , 10, 390);
+	//  ctx.fillText("Size of GenericButtonArray is: "+this.GenericButtonArray.length , 200, 390);
+	  ctx.fillText("myState.CTRL Pressed = "+ this.CTRLpressed , 200, 390);
+	  ctx.fillText("myState.MovingCamera = "+ this.MovingCamera , 400, 390);
+	  ctx.fillText("myState.CentreOfView= ("+ this.CentreOfView.x + ", "+ this.CentreOfView.y +")" , 600, 370);
+	   ctx.fillText("myState.clickedpoint= ("+ this.clickedpoint.x + ", "+ this.clickedpoint.y +")" , 600, 390);
+	   ctx.fillText("myState.mousepoint= ("+ this.mousepoint.x + ", "+ this.mousepoint.y +")" , 400, 370);
+	   ctx.fillText("myState.CameraVariable= ("+ this.CameraVariable.x + ", "+ this.CameraVariable.y +")" , 200, 370);
+	   ctx.fillText("myState.clickedpoint = ("+ this.clickedpoint .x + ", "+ this.clickedpoint .y +")" , 10, 370);
+	   ctx.fillText("myState.CentreOfTheUniverse = ("+ this.CentreOfTheUniverse.x + ", "+ this.CentreOfTheUniverse.y +")" , 10, 350);
+	   ctx.fillText("myState.SelectionChoiceMode = "+ this.SelectionChoiceMode , 300, 350);
+	   ctx.fillText("myState.BodySelected = "+ this.BodySelected , 600, 350);
+       if (this.Selection !== null){
+  	      ctx.fillText("currently selected body is at(" + this.Selection.position.x +", "+ this.Selection.position.y +") and has a velocity of (" + this.Selection.velocity.x +"," + this.Selection.velocity.y+")" , 10, 340);
+       }
+   }
+}
+CanvasState.prototype.drawplacementgraphics = function(ctx) {
+      //line
+	  ctx.beginPath();
+      ctx.moveTo(this.clickedpoint.x, this.clickedpoint.y);
+      ctx.lineTo(this.mousepoint.x, this.mousepoint.y);      
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'yellow';
+      ctx.stroke();
+	  //circle
+	  ctx.beginPath();
+      ctx.arc(this.clickedpoint.x, this.clickedpoint.y, 2, 0, 2 * Math.PI, false);
+      ctx.fillStyle = 'yellow';
+      ctx.fill();
+      ctx.lineWidth = 1;
+}
+CanvasState.prototype.drawcentrelines = function(ctx) {
+      //line
+	  ctx.beginPath();
+      ctx.moveTo(this.CentreOfTheUniverse.x-100, 0);
+      ctx.lineTo(this.CentreOfTheUniverse.x-100, this.canvas.height);      
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'green';
+      ctx.stroke();
+	  
+	  ctx.beginPath();
+      ctx.moveTo(0, this.CentreOfTheUniverse.y+70);
+      ctx.lineTo(this.canvas.width, this.CentreOfTheUniverse.y+70);      
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'green';
+      ctx.stroke();
+	  
+}
+CanvasState.prototype.collisionresolution = function() {
+/*  abandoned for now, will do later.
+  var newBodys[]; 
+   for (var i=0; i<this.NumberOfBodys; i++){ 
+      for (var j=0; j<this.NumberOfBodys; j++){
+	     if(this.Bodys[i].HasCollided(this.Bodys[j]){
+		    
+		 }
+	  } 
+   }
+   */
+}
+// compute the forces
+CanvasState.prototype.computeforces = function() {
+    
+	for (var i=0; i<this.NumberOfBodys; i++){ 
+	 //   Bodys[i].move();
+	    if(this.Bodys[i].pinned === true){
+		   this.Bodys[i].velocity.x = 0;
+		   this.Bodys[i].velocity.y = 0;
+		}else{
+		 this.NextStepVelocitys[i].x =0;
+		 this.NextStepVelocitys[i].y =0;
+		// this.NextStepVelocitys[i] = this.Bodys[i].velocity;
+          for (var j=0; j<this.NumberOfBodys; j++){ 
+            if(i !== j){                	
+                 //if two particles have the same position, teleport the second one one pixel to the left
+				 if(this.Bodys[i].position.x === this.Bodys[j].position.x && this.Bodys[i].position.y === this.Bodys[j].position.y){
+	                  this.Bodys[j].position.x = this.Bodys[j].position.x+1;			    
+				 }
+                 //this.NextStepVelocitys[i].x = this.Bodys[i].velocity.x - this.Bodys[i].forceFrom(this.Bodys[j]).x;
+			     //this.NextStepVelocitys[i].y =  this.Bodys[i].velocity.y - this.Bodys[i].forceFrom(this.Bodys[j]).y;
+				 				 
+			     this.NextStepVelocitys[i].x = this.NextStepVelocitys[i].x + this.Bodys[i].forceFrom(this.Bodys[j]).x;
+			     this.NextStepVelocitys[i].y =  this.NextStepVelocitys[i].y + this.Bodys[i].forceFrom(this.Bodys[j]).y;
+				 //this.Bodys[i].velocity.x = this.Bodys[i].velocity.x - this.Bodys[i].forceFrom(this.Bodys[j]).x;
+			     //this.Bodys[i].velocity.y = this.Bodys[i].velocity.y - this.Bodys[i].forceFrom(this.Bodys[j]).y;
+		   }
+		  }
+	   }
+    }
+	
+	for ( var count=0; count<this.NumberOfBodys; count++){ 
+		     this.Bodys[count].velocity.x = this.Bodys[count].velocity.x - this.NextStepVelocitys[count].x;
+		     this.Bodys[count].velocity.y = this.Bodys[count].velocity.y - this.NextStepVelocitys[count].y;
+			 this.NextStepVelocitys[count].x = 0;
+       	     this.NextStepVelocitys[count].y = 0;
+	
+     }
+	  
+}
+CanvasState.prototype.draw = function() {
+    // ** Add stuff you want drawn in the background all the time here **
+     
+  //var mouse = getMouse(function(e));
+    var ctx = this.ctx;
+    //ctx.fillStyle   = '#FFFFFF';
+    var Bodys = this.Bodys;
+	ctx.canvas.width  = 750;
+    ctx.canvas.height = 350;
+	var GenericButtonArray = this.GenericButtonArray;
+    this.clear();
+	
+	if(this.Selection !== null){
+	   this.resetcamera();
+	   this.MoveCamera(this.Selection.position, this.CentreOfView);
+	   
+	}
+	
+    this.drawcentrelines(ctx);
+    //this.drawdebuginfo(ctx);
+	if(this.paused === false){
+       this.computeforces();
+	   this.collisionresolution();
+	}else{
+      ctx.font = '10pt Calibri';
+      ctx.fillStyle = 'yellow';
+      ctx.fillText("Paused!" , 10, 10);
+   
+	}
+	
+    // draw all Bodys
+    var l = Bodys.length;
+    for (var i = 0; i < l; i++) {
+      var Body = Bodys[i];
+	  if(this.paused === false){
+	     Bodys[i].move(this.CentreOfView);
+	  }
+      // We can skip the drawing of elements that have moved off the screen:
+      if (Body.x > this.width || Body.y > this.height ||
+          Body.x + Body.w < 0 || Body.y + Body.h < 0) continue;
+      Bodys[i].draw(ctx);
+	
+    }
+    if(this.placing === true){
+	//alert("Draw a rectangle!");
+	   this.drawplacementgraphics(ctx);  
+	}
+    
+    // ** Add stuff you want drawn on top all the time here **
+    
+	//draw all generic buttons
+	for (var c = 0; c < GenericButtonArray.length; c++) {
+	  GenericButtonArray[c].draw(ctx);
+	}
+    
+    
+}
+// Creates an object with x and y defined, set to the mouse position relative to the state's canvas
+// If you wanna be super-correct this can be tricky, we have to worry about padding and borders
+CanvasState.prototype.getMouse = function(e) {
+  var element = this.canvas, offsetX = 0, offsetY = 0, mx, my;
+  
+  // Compute the total offset
+  if (element.offsetParent !== undefined) {
+    do {
+      offsetX += element.offsetLeft;
+      offsetY += element.offsetTop;
+    } while ((element = element.offsetParent));
+  }
+  // Add padding and border style widths to offset
+  // Also add the <html> offsets in case there's a position:fixed bar
+  offsetX += this.stylePaddingLeft + this.styleBorderLeft + this.htmlLeft;
+  offsetY += this.stylePaddingTop + this.styleBorderTop + this.htmlTop;
+  mx = e.pageX - offsetX;
+  my = e.pageY - offsetY;
+  
+  // We return a simple javascript object (a hash) with x and y defined
+  return {x: mx, y: my};
+}
+// If you dont want to use <body onLoad='init()'>
+// You could uncomment this init() reference and place the script reference inside the body tag
+//init();
+function init() {
+  var s = new CanvasState(document.getElementById('canvas'));
+  //s.addBody(new Body(new vector(400, 200), s.placing_mass, new vector(0, 0), false));
+ // s.addBody(new Body(new vector(400, 250), s.placing_mass, new vector(2, 0), false));
+ s.addBody(new Body(new vector(220, 190), 500, new vector(2, 2), false));
+     s.addBody(new Body(new vector(400, 300), 1000, new vector(3.5, 0), false));
+  s.addBody(new Body(new vector(400, 170), 10000, new vector(-0.2, -0.3), false));
+//  s.addBody(new Body(new vector(500, 10), 100, new vector(0, -3), false));
+//  s.addBody(new Body(new vector(10, 10), s.placing_mass, new vector(0, ), false));
+ // s.addGenericButton(new GenericButton(new vector(670, 100), "testbutton", 100, 20, function() { alert("Button pressed!");}, true, false));
+  s.addGenericButton(new GenericButton(new vector(10, 300), "Reset Camera", 100, 17, s.resetcamera, true, false));
+  s.addGenericButton(new GenericButton(new vector(10, 330), "Enter Select Mode", 100, 30, s.SelectionChoiceModePressed, true, false));
+}
+    </script>
+  </body>
+</html>
